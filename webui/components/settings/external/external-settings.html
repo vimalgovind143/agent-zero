@@ -40,6 +40,12 @@
                 </a>
               </li>
               <li>
+                <a href="#section-telegram">
+                  <img src="/public/external_api.svg" alt="Telegram" />
+                  <span>Telegram</span>
+                </a>
+              </li>
+              <li>
                 <a href="#section-update-checker">
                   <img src="/public/update_checker.svg" alt="Update Checker" />
                   <span>Update Checker</span>
@@ -68,6 +74,80 @@
           </div>
           <div id="section-external-api" class="section">
             <x-component path="settings/external/external_api.html"></x-component>
+          </div>
+          <div id="section-telegram" class="section">
+            <div>
+              <div class="section-title">Telegram</div>
+              <div class="section-description">
+                Connect a Telegram bot so Agent Zero can respond to messages from Telegram chats.
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Enable Telegram</div>
+                  <div class="field-description">Enable Telegram bot integration.</div>
+                </div>
+                <div class="field-control">
+                  <label class="toggle">
+                    <input type="checkbox" x-model="$store.settings.settings.telegram_enabled" />
+                    <span class="toggler"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Bot Token</div>
+                  <div class="field-description">Telegram bot token from BotFather.</div>
+                </div>
+                <div class="field-control">
+                  <input type="password" autocomplete="off" x-model="$store.settings.settings.telegram_bot_token" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Mode</div>
+                  <div class="field-description">Webhook for production, polling for local development.</div>
+                </div>
+                <div class="field-control">
+                  <select x-model="$store.settings.settings.telegram_mode">
+                    <option value="webhook">Webhook</option>
+                    <option value="polling">Polling</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Allowed Chat IDs</div>
+                  <div class="field-description">Comma-separated list of chat IDs allowed to message the bot.</div>
+                </div>
+                <div class="field-control">
+                  <input type="text" x-model="$store.settings.settings.telegram_allowed_chat_ids" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Webhook URL</div>
+                  <div class="field-description">Public HTTPS URL to receive Telegram webhook updates.</div>
+                </div>
+                <div class="field-control">
+                  <input type="text" x-model="$store.settings.settings.telegram_webhook_url" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <div class="field-title">Webhook Secret</div>
+                  <div class="field-description">Secret token for verifying incoming webhooks.</div>
+                </div>
+                <div class="field-control">
+                  <input type="password" autocomplete="off" x-model="$store.settings.settings.telegram_webhook_secret" />
+                </div>
+              </div>
+            </div>
           </div>
           <div id="section-update-checker" class="section">
             <x-component path="settings/external/update_checker.html"></x-component>

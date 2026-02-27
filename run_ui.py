@@ -218,13 +218,24 @@ async def logout_handler():
 @requires_auth
 async def serve_index():
     gitinfo = None
-    try:
-        gitinfo = git.get_git_info()
-    except Exception:
+    # First try to get from environment variables (set by deploy script)
+    env_version = os.environ.get("A0_VERSION")
+    env_commit_time = os.environ.get("A0_COMMIT_TIME")
+    
+    if env_version or env_commit_time:
         gitinfo = {
-            "version": "unknown",
-            "commit_time": "unknown",
+            "version": env_version or "unknown",
+            "commit_time": env_commit_time or "unknown",
         }
+    else:
+        # Fallback to git module (works when .git folder is present)
+        try:
+            gitinfo = git.get_git_info()
+        except Exception:
+            gitinfo = {
+                "version": "unknown",
+                "commit_time": "unknown",
+            }
     index = files.read_file("webui/index.html")
     index = files.replace_placeholders_text(
         _content=index,
@@ -548,6 +559,7 @@ def init_a0():
     initialize.initialize_mcp()
     # start job loop
     initialize.initialize_job_loop()
+    settings_helper.start_telegram_polling_if_enabled()
     # preload
     initialize.initialize_preload()
 

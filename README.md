@@ -84,6 +84,7 @@ docker run -p 50001:80 agent0ai/agent-zero
 - **Default Tools:** Agent Zero includes tools like knowledge, code execution, and communication.
 - **Creating Custom Tools:** Extend Agent Zero's functionality by creating your own custom tools.
 - **Skills (SKILL.md Standard):** Skills are contextual expertise loaded dynamically when relevant. They use the open SKILL.md standard (developed by Anthropic), making them compatible with Claude Code, Cursor, Goose, OpenAI Codex CLI, and GitHub Copilot.
+- **Telegram Bot Integration:** Chat with Agent Zero through Telegram. Configure a bot token, set allowed chat IDs, and interact with your agent from anywhere using webhook or polling mode.
 
 3. **Multi-agent Cooperation**
 
@@ -155,7 +156,7 @@ docker run -p 50001:80 agent0ai/agent-zero
 |-------|-------------|
 | [Installation](./docs/setup/installation.md) | Installation, setup and configuration |
 | [Usage](./docs/guides/usage.md) | Basic and advanced usage |
-| [Guides](./docs/guides/) | Step-by-step guides: Usage, Projects, API Integration, MCP Setup, A2A Setup |
+| [Guides](./docs/guides/) | Step-by-step guides: Usage, Projects, API Integration, MCP Setup, A2A Setup, Telegram |
 | [Development Setup](./docs/setup/dev-setup.md) | Development and customization |
 | [WebSocket Infrastructure](./docs/developer/websockets.md) | Real-time WebSocket handlers, client APIs, filtering semantics, envelopes |
 | [Extensions](./docs/developer/extensions.md) | Extending Agent Zero |
@@ -167,9 +168,14 @@ docker run -p 50001:80 agent0ai/agent-zero
 
 ## 🎯 Changelog
 
-### v0.9.8 - Skills, UI Redesign & Git projects
+### v0.9.8 - Skills, UI Redesign, Git projects & Telegram
 [Release video](https://youtu.be/NV7s78yn6DY)
 
+- Telegram Bot Integration
+    - Chat with Agent Zero through Telegram messages
+    - Webhook and polling modes supported
+    - Configurable allowed chat IDs for security
+    - Bot token stored securely in secrets
 - Skills
     - Skills System replacing the legacy Instruments with a new `SKILL.md` standard for structured, portable agent capabilities.
     - Built-in skills, and UI support for importing and listing skills
