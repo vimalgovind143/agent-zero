@@ -101,6 +101,16 @@ chat:
     litellm_provider: openai
     kwargs:
       api_base: https://api.z.ai/api/coding/paas/v4
+  alibaba:
+    name: Alibaba Cloud (DashScope)
+    litellm_provider: openai
+    kwargs:
+      api_base: https://coding-intl.dashscope.aliyuncs.com/v1
+  chutes:
+    name: Chutes AI
+    litellm_provider: openai
+    kwargs:
+      api_base: https://llm.chutes.ai/v1
   other:
     name: Other OpenAI compatible
     litellm_provider: openai
