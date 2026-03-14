@@ -48,6 +48,13 @@ _telegram_rate_limits: dict[str, float] = {}
 _telegram_cleanup_lock = threading.Lock()
 _telegram_rate_limit_lock = threading.Lock()
 
+# Multi-chat support: track active context and all contexts per Telegram chat
+# Key: Telegram chat_id (as str), Value: active ctxid
+_telegram_active_context: dict[str, str] = {}
+# Key: Telegram chat_id (as str), Value: list of ctxids belonging to this chat
+_telegram_all_contexts: dict[str, list[str]] = {}
+_telegram_contexts_lock = threading.Lock()
+
 # Message queue state with proper async locks
 TELEGRAM_MESSAGE_QUEUE: dict[str, list[dict]] = {}
 _telegram_processing_locks: dict[str, asyncio.Lock] = {}
@@ -69,6 +76,65 @@ def _cleanup_processing_lock(ctxid: str) -> None:
     """Remove processing lock for a context (called during cleanup)."""
     with _telegram_locks_lock:
         _telegram_processing_locks.pop(ctxid, None)
+
+
+def _get_active_telegram_context(chat_id: int | str) -> str:
+    """Get the active context ID for a Telegram chat, or create default."""
+    chat_key = str(chat_id)
+    with _telegram_contexts_lock:
+        if chat_key in _telegram_active_context:
+            return _telegram_active_context[chat_key]
+        # Create default context ID
+        ctxid = f"tg-{chat_key}"
+        _telegram_active_context[chat_key] = ctxid
+        if chat_key not in _telegram_all_contexts:
+            _telegram_all_contexts[chat_key] = []
+        if ctxid not in _telegram_all_contexts[chat_key]:
+            _telegram_all_contexts[chat_key].append(ctxid)
+        return ctxid
+
+
+def _register_telegram_context(chat_id: int | str, ctxid: str) -> None:
+    """Register a new context for a Telegram chat."""
+    chat_key = str(chat_id)
+    with _telegram_contexts_lock:
+        if chat_key not in _telegram_all_contexts:
+            _telegram_all_contexts[chat_key] = []
+        if ctxid not in _telegram_all_contexts[chat_key]:
+            _telegram_all_contexts[chat_key].append(ctxid)
+
+
+def _set_active_telegram_context(chat_id: int | str, ctxid: str) -> None:
+    """Set the active context for a Telegram chat."""
+    chat_key = str(chat_id)
+    with _telegram_contexts_lock:
+        _telegram_active_context[chat_key] = ctxid
+        if chat_key not in _telegram_all_contexts:
+            _telegram_all_contexts[chat_key] = []
+        if ctxid not in _telegram_all_contexts[chat_key]:
+            _telegram_all_contexts[chat_key].append(ctxid)
+
+
+def _get_all_telegram_contexts(chat_id: int | str) -> list[str]:
+    """Get all context IDs for a Telegram chat."""
+    chat_key = str(chat_id)
+    with _telegram_contexts_lock:
+        return list(_telegram_all_contexts.get(chat_key, []))
+
+
+def _create_new_telegram_context(chat_id: int | str) -> str:
+    """Create a new unique context ID for a Telegram chat."""
+    import uuid
+    chat_key = str(chat_id)
+    # Generate unique context ID with timestamp for readability
+    short_uuid = uuid.uuid4().hex[:8]
+    ctxid = f"tg-{chat_key}-{short_uuid}"
+    with _telegram_contexts_lock:
+        _telegram_active_context[chat_key] = ctxid
+        if chat_key not in _telegram_all_contexts:
+            _telegram_all_contexts[chat_key] = []
+        _telegram_all_contexts[chat_key].append(ctxid)
+    return ctxid
 
 
 def _reset_telegram_polling(start: bool) -> None:
@@ -527,12 +593,14 @@ async def _process_telegram_message(
         else:
             return  # No content to process
 
-    ctxid = f"tg-{chat_id}"
+    # Get or create active context for this Telegram chat
+    ctxid = _get_active_telegram_context(chat_id)
     context = AgentContext.use(ctxid)
     if not context:
         config = initialize_agent()
         context = AgentContext(config=config, id=ctxid, type=AgentContextType.USER)
         AgentContext.use(ctxid)
+        _register_telegram_context(chat_id, ctxid)
 
     # Log message with attachment info
     log_content = text
@@ -821,8 +889,10 @@ async def _handle_telegram_command(
             "Available commands:\n"
             "/start - Show this welcome message\n"
             "/help - Show help information\n"
-            "/newchat - Start a fresh conversation\n"
-            "/reset - Reset conversation & clear memory\n"
+            "/newchat - Start a new conversation (keeps old)\n"
+            "/chats - List all your conversations\n"
+            "/switch <n> - Switch to conversation #n\n"
+            "/reset - Reset current conversation\n"
             "/clear - Clear chat display\n"
             "/status - Show bot and session status\n"
             "/cancel - Stop current task"
@@ -834,8 +904,10 @@ async def _handle_telegram_command(
             "🤖 Agent Zero Commands\n\n"
             "Chat Management:\n"
             "• /start - Welcome message\n"
-            "• /newchat - Start fresh conversation\n"
-            "• /reset - Reset conversation & clear memory\n"
+            "• /newchat - Start a new conversation (previous chats preserved)\n"
+            "• /chats - List all your conversations\n"
+            "• /switch <n> - Switch to conversation #n\n"
+            "• /reset - Reset current conversation\n"
             "• /clear - Clear chat display\n\n"
             "Information:\n"
             "• /help - This help message\n"
@@ -852,36 +924,134 @@ async def _handle_telegram_command(
         await _send_telegram_message(token, chat_id, help_text)
 
     elif command == "/newchat":
-        ctxid = f"tg-{chat_id}"
-        context = AgentContext.use(ctxid)
-        if context:
-            context.reset()
-            AgentContext.remove(ctxid)
-        with _telegram_cleanup_lock:
-            _telegram_chat_lifetimes.pop(ctxid, None)
+        # Create a new context while preserving the old one
+        new_ctxid = _create_new_telegram_context(chat_id)
         await _send_telegram_message(
             token, chat_id,
-            "✨ New conversation started!\n\n"
-            "I've reset our chat. Previous context is cleared.\n"
-            "How can I help you today?"
+            f"✨ New conversation started!\n\n"
+            f"Context ID: `{new_ctxid}`\n"
+            f"Your previous conversations are preserved.\n"
+            f"Use /chats to see all your conversations.\n\n"
+            f"How can I help you today?"
         )
-        _logger.debug(f"Started new chat for {chat_id}")
+        _logger.debug(f"Created new chat {new_ctxid} for {chat_id}")
+
+    elif command == "/chats":
+        all_ctxids = _get_all_telegram_contexts(chat_id)
+        active_ctxid = _get_active_telegram_context(chat_id)
+        
+        if not all_ctxids:
+            await _send_telegram_message(
+                token, chat_id,
+                "📋 No conversations found.\n"
+                "Send a message to start one!"
+            )
+            return
+        
+        lines = ["📋 Your Conversations", ""]
+        for i, ctxid in enumerate(all_ctxids, 1):
+            context = AgentContext.get(ctxid)
+            active_marker = " ✅ (active)" if ctxid == active_ctxid else ""
+            
+            # Try to get conversation name or preview
+            if context and context.name:
+                name = context.name
+            elif context and hasattr(context, 'log') and context.log:
+                # Try to get first user message as preview
+                try:
+                    first_msg = context.log.logs[0] if context.log.logs else None
+                    if first_msg and first_msg.content:
+                        preview = first_msg.content[:30]
+                        name = f"{preview}..." if len(first_msg.content) > 30 else preview
+                    else:
+                        name = f"Chat #{i}"
+                except Exception:
+                    name = f"Chat #{i}"
+            else:
+                name = f"Chat #{i}"
+            
+            lines.append(f"{i}. {name}{active_marker}")
+            lines.append(f"   ID: `{ctxid}`")
+        
+        lines.append("")
+        lines.append("Use /switch <number> to switch to a different conversation.")
+        
+        await _send_telegram_message(token, chat_id, "\n".join(lines))
+
+    elif command.startswith("/switch"):
+        parts = text.split()
+        if len(parts) < 2:
+            await _send_telegram_message(
+                token, chat_id,
+                "Usage: /switch <number>\n"
+                "Example: /switch 2\n\n"
+                "Use /chats to see all your conversations."
+            )
+            return
+        
+        try:
+            index = int(parts[1]) - 1  # Convert to 0-based index
+        except ValueError:
+            await _send_telegram_message(
+                token, chat_id,
+                "Invalid number. Use /chats to see conversation numbers."
+            )
+            return
+        
+        all_ctxids = _get_all_telegram_contexts(chat_id)
+        if index < 0 or index >= len(all_ctxids):
+            await _send_telegram_message(
+                token, chat_id,
+                f"Invalid conversation number. You have {len(all_ctxids)} conversation(s)."
+            )
+            return
+        
+        new_ctxid = all_ctxids[index]
+        _set_active_telegram_context(chat_id, new_ctxid)
+        
+        # Ensure the context exists
+        context = AgentContext.use(new_ctxid)
+        if not context:
+            from agent import initialize_agent
+            config = initialize_agent()
+            context = AgentContext(config=config, id=new_ctxid, type=AgentContextType.USER)
+            AgentContext.use(new_ctxid)
+        
+        await _send_telegram_message(
+            token, chat_id,
+            f"✅ Switched to conversation #{index + 1}\n"
+            f"Context ID: `{new_ctxid}`\n\n"
+            f"You can continue the conversation now."
+        )
+        _logger.debug(f"Switched to context {new_ctxid} for chat {chat_id}")
 
     elif command == "/reset":
-        ctxid = f"tg-{chat_id}"
+        ctxid = _get_active_telegram_context(chat_id)
         context = AgentContext.use(ctxid)
         if context:
             context.reset()
             AgentContext.remove(ctxid)
         with _telegram_cleanup_lock:
             _telegram_chat_lifetimes.pop(ctxid, None)
+        # Remove from tracking
+        chat_key = str(chat_id)
+        with _telegram_contexts_lock:
+            if chat_key in _telegram_all_contexts and ctxid in _telegram_all_contexts[chat_key]:
+                _telegram_all_contexts[chat_key].remove(ctxid)
+            if _telegram_active_context.get(chat_key) == ctxid:
+                # Switch to another context if available, or clear
+                remaining = _telegram_all_contexts.get(chat_key, [])
+                if remaining:
+                    _telegram_active_context[chat_key] = remaining[-1]
+                else:
+                    _telegram_active_context.pop(chat_key, None)
         await _send_telegram_message(
             token, chat_id,
             "🔄 Conversation reset!\n\n"
-            "Memory cleared and context reset.\n"
-            "How can I help you?"
+            "Memory cleared and context removed.\n"
+            "Use /chats to see remaining conversations."
         )
-        _logger.debug(f"Reset conversation for chat {chat_id}")
+        _logger.debug(f"Reset conversation {ctxid} for chat {chat_id}")
 
     elif command == "/clear":
         # Visual chat clearing with newlines + optional delete message
@@ -893,7 +1063,7 @@ async def _handle_telegram_command(
 
     elif command == "/status":
         from python.helpers.settings import get_settings
-        ctxid = f"tg-{chat_id}"
+        ctxid = _get_active_telegram_context(chat_id)
         context = AgentContext.use(ctxid)
         cfg = get_settings()
 
@@ -943,7 +1113,12 @@ async def _handle_telegram_command(
                 pass
 
             status_lines.append("")
-            status_lines.append("💡 Tip: Use /reset to clear memory and start fresh")
+            # Show total conversations
+            all_ctxids = _get_all_telegram_contexts(chat_id)
+            if len(all_ctxids) > 1:
+                status_lines.append(f"💬 Total conversations: {len(all_ctxids)}")
+                status_lines.append("")
+            status_lines.append("💡 Tip: Use /chats to see all conversations")
         else:
             status_lines.append("📁 Session: No active conversation")
             status_lines.append("")
@@ -953,7 +1128,7 @@ async def _handle_telegram_command(
         await _send_telegram_message(token, chat_id, status_text)
 
     elif command == "/cancel":
-        ctxid = f"tg-{chat_id}"
+        ctxid = _get_active_telegram_context(chat_id)
         queue_cleared = False
         processing_stopped = False
 
