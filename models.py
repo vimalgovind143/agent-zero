@@ -814,6 +814,15 @@ def _merge_provider_defaults(
         if key and key not in ("None", "NA"):
             kwargs["api_key"] = key
 
+    # Inject api_base from provider's default_base for local/self-hosted providers
+    # when api_base is not already configured (e.g., lm_studio, ollama)
+    if "api_base" not in kwargs and cfg:
+        models_list = cfg.get("models_list") if isinstance(cfg, dict) else None
+        if isinstance(models_list, dict):
+            default_base = models_list.get("default_base")
+            if default_base:
+                kwargs["api_base"] = default_base
+
     # Merge LiteLLM global kwargs (timeouts, stream_timeout, etc.)
     try:
         global_kwargs = settings.get_settings().get("litellm_global_kwargs", {})  # type: ignore[union-attr]
