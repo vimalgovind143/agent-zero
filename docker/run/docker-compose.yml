@@ -1,8 +1,10 @@
 services:
   agent-zero:
     container_name: agent-zero
-    image: agent0ai/agent-zero:latest
+    image: agent-zero-local:latest
+    restart: unless-stopped
     volumes:
-      - ./agent-zero:/a0
+      - ../../:/a0
+      - D:/GitHub/Agent0-Local/Data:/a0/usr
     ports:
-      - "50080:80"
+      - "8080:80"
